@@ -3,10 +3,15 @@
 
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs?ref=nixos-unstable";
+    # Pin to a revision that includes libvirt 9.0.0
+    nixpkgs-libvirt-9 = {
+      url = "github:nixos/nixpkgs/23.05";
+      flake = false;
+    };
     flake-utils.url = "github:numtide/flake-utils";
   };
 
-  outputs = { self, nixpkgs, flake-utils, ... }:
+  outputs = { self, nixpkgs, nixpkgs-libvirt-9, flake-utils, ... }:
     flake-utils.lib.eachDefaultSystem (system:
       let
         pkgs = import nixpkgs {
@@ -14,16 +19,29 @@
           config.allowUnfree = true;
         };
 
+        # Import libvirt 9.0.0 from pinned nixpkgs revision
+        pkgs-libvirt-9 = import nixpkgs-libvirt-9 {
+          inherit system;
+          config.allowUnfree = true;
+        };
+        libvirt_9_0_0 = pkgs-libvirt-9.libvirt;
+
         libvirtSrcPrepared = pkgs.stdenv.mkDerivation {
           name = "libvirt-src-prepared";
-          src = pkgs.libvirt.src;
+          src = libvirt_9_0_0.src;
 
           nativeBuildInputs = with pkgs;
-            [ meson ninja pkg-config ] ++ pkgs.libvirt.nativeBuildInputs;
+            [ meson ninja pkg-config gnumake gnused gnugrep ] ++ libvirt_9_0_0.nativeBuildInputs;
 
-          buildInputs = pkgs.libvirt.buildInputs;
+          buildInputs = libvirt_9_0_0.buildInputs;
 
           configurePhase = ''
+            # Create GNU tool symlinks since libvirt expects them
+            mkdir -p $TMPDIR/bin
+            ln -s ${pkgs.gnumake}/bin/make $TMPDIR/bin/gmake
+            ln -s ${pkgs.gnused}/bin/sed $TMPDIR/bin/gsed
+            ln -s ${pkgs.gnugrep}/bin/grep $TMPDIR/bin/ggrep
+            export PATH="$TMPDIR/bin:$PATH"
             meson setup build
           '';
 
@@ -57,7 +75,7 @@
 
             # Tools
             claude-code
-            libvirt
+            libvirt_9_0_0
           ];
 
           shellHook = ''
